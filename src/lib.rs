@@ -4,6 +4,12 @@ use reqwest::{Client, cookie::Jar};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
+use std::env;
+use dotenv::dotenv;
+
+// Include test modules
+#[cfg(test)]
+mod tests;
 
 #[derive(Error, Debug)]
 pub enum GrowattError {
@@ -28,11 +34,15 @@ pub type Result<T> = std::result::Result<T, GrowattError>;
 // Define structs for plant data
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Plant {
+    #[serde(rename = "id")]
     pub plant_id: String,
+    #[serde(rename = "name", alias = "plantName")]
     pub plant_name: String,
+    #[serde(rename = "plantAddress", default)]
     pub plant_address: Option<String>,
+    #[serde(rename = "plantPower", default)]
     pub plant_watts: Option<f64>,
-    #[serde(rename = "isShare")]
+    #[serde(rename = "isShare", default)]
     pub is_share: Option<bool>,
 }
 
@@ -64,6 +74,7 @@ pub struct Growatt {
     is_logged_in: bool,
     session_expiry: Option<DateTime<Utc>>,
     session_duration: chrono::Duration,
+    token: Option<String>,  // Add token field
 }
 
 impl Growatt {
@@ -84,7 +95,47 @@ impl Growatt {
             session_expiry: None,
             // Default session duration of 30 minutes
             session_duration: chrono::Duration::minutes(30),
+            token: None,  // Initialize token as None
         }
+    }
+    
+    /// Creates a new Growatt client with configuration from environment variables.
+    /// 
+    /// This method attempts to load the following environment variables:
+    /// - GROWATT_USERNAME: The username for Growatt API
+    /// - GROWATT_PASSWORD: The password for Growatt API
+    /// - GROWATT_BASE_URL: (Optional) Alternative base URL (defaults to standard URL if not set)
+    /// - GROWATT_SESSION_DURATION: (Optional) Session duration in minutes (defaults to 30 minutes if not set)
+    /// 
+    /// You can set these variables in a `.env` file in the project directory.
+    pub fn from_env() -> Self {
+        // Load .env file if it exists
+        dotenv().ok();
+        
+        let mut client = Self::new();
+        
+        // Set username and password if available in environment
+        if let Ok(username) = env::var("GROWATT_USERNAME") {
+            client.username = Some(username);
+        }
+        
+        if let Ok(password) = env::var("GROWATT_PASSWORD") {
+            client.password = Some(password);
+        }
+        
+        // Set base URL if specified
+        if let Ok(base_url) = env::var("GROWATT_BASE_URL") {
+            client.base_url = base_url;
+        }
+        
+        // Set session duration if specified
+        if let Ok(duration_str) = env::var("GROWATT_SESSION_DURATION") {
+            if let Ok(duration) = duration_str.parse::<i64>() {
+                client.session_duration = chrono::Duration::minutes(duration);
+            }
+        }
+        
+        client
     }
 
     pub fn with_alternate_url(mut self) -> Self {
@@ -101,6 +152,10 @@ impl Growatt {
         let mut hasher = Md5::new();
         hasher.update(password.as_bytes());
         hex::encode(hasher.finalize())
+    }
+
+    pub fn get_token(&self) -> Option<String> {
+        self.token.clone()
     }
 
     pub async fn login(&mut self, username: &str, password: &str) -> Result<bool> {
@@ -141,6 +196,12 @@ impl Growatt {
                 self.is_logged_in = true;
                 // Set session expiry time
                 self.session_expiry = Some(Utc::now() + self.session_duration);
+                
+                // Extract and store token if available in the response
+                if let Some(token) = json_response.get("token").and_then(|v| v.as_str()) {
+                    self.token = Some(token.to_string());
+                }
+                
                 Ok(true)
             } else {
                 let error_msg = json_response
@@ -502,7 +563,7 @@ impl Growatt {
         }
     }
 
-    pub async fn post_mix_ac_discharge_time_period_now(&mut self, plant_id: &str, mix_sn: &str) -> Result<serde_json::Value> {
+    pub async fn post_mix_ac_discharge_time_period_now(&mut self, _plant_id: &str, mix_sn: &str) -> Result<serde_json::Value> {
         self.check_login().await?;
 
         let now = Local::now();
@@ -679,6 +740,11 @@ impl Growatt {
         fault_type: i32
     ) -> Result<serde_json::Value> {
         self.get_fault_logs(plant_id, date, device_sn, page_num, device_flag, fault_type).await
+    }
+
+    // Add a public method to check login status
+    pub fn is_logged_in(&self) -> bool {
+        self.is_logged_in
     }
 }
 
