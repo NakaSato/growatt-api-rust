@@ -27,15 +27,8 @@ dotenv = "0.15.0"
 
 # Error handling
 thiserror = "1.0"
-anyhow = "1.0"
-
-# Logging
-log = "0.4"
-env_logger = "0.10"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
-wiremock = "0.5"
-mockito = "0.32"
 test-log = "0.2"
 pretty_assertions = "1.3"
